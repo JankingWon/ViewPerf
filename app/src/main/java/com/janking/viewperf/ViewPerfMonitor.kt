@@ -223,16 +223,16 @@ object ViewPerfMonitor {
                 val appName = if (appNameId == 0) context?.applicationInfo?.nonLocalizedLabel.toString() else context?.getString(appNameId)
                 when {
                     viewRootImplStepSet.globalData.cost > 33 -> {
-                        Log.e("ViewPerfMonitor", "[$appName]->$result")
+                        ContinuePrintLog.e("ViewPerfMonitor", "[$appName]->$result")
                     }
                     viewRootImplStepSet.globalData.cost > 16 -> {
-                        Log.w("ViewPerfMonitor", "[$appName]->$result")
+                        ContinuePrintLog.w("ViewPerfMonitor", "[$appName]->$result")
                     }
                     viewRootImplStepSet.globalData.cost > 1 -> {
-                        Log.i("ViewPerfMonitor", "[$appName]->$result")
+                        ContinuePrintLog.i("ViewPerfMonitor", "[$appName]->$result")
                     }
                     else -> {
-                        Log.d("ViewPerfMonitor", "[$appName]->$result")
+                        ContinuePrintLog.d("ViewPerfMonitor", "[$appName]->$result")
                     }
                 }
             }
