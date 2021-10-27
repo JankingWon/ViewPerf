@@ -21,29 +21,29 @@ val ViewGroup.children: Sequence<View>
 
 class StepData {
     /**
-     * onMeasure的次数
+     * 次数
      */
-    var measureCount = 0
+    var count = 0
 
     /**
-     * 总共的onMeasure花费的毫秒数
+     * 总共的花费的毫秒数
      */
-    var measureCost = 0L
+    var cost = 0L
 
     /**
-     * 上次onMeasure开始的时间
+     * 上次开始的时间
      */
-    var lastMeasureTs = 0L
+    var lastBeginTs = 0L
 
     /**
-     * 触发了measure进入的次数
+     * 触发进入的次数
      */
     var triggerBegin = 0
 
     fun begin() {
         // 如果多次进入begin，以第一次为准
-        if (lastMeasureTs == 0L) {
-            lastMeasureTs = System.currentTimeMillis()
+        if (lastBeginTs == 0L) {
+            lastBeginTs = System.currentTimeMillis()
         }
         triggerBegin++
     }
@@ -51,17 +51,17 @@ class StepData {
     fun end() {
         triggerBegin--
         if (triggerBegin == 0) {
-            // 最后进入结束，视为一次有效的measure过程
-            measureCount++
-            measureCost += System.currentTimeMillis() - lastMeasureTs
-            lastMeasureTs = 0
+            // 最后进入结束，视为一次有效的过程
+            count++
+            cost += System.currentTimeMillis() - lastBeginTs
+            lastBeginTs = 0
         }
     }
 
     fun clear() {
-        measureCount = 0
-        measureCost = 0L
-        lastMeasureTs = 0L
+        count = 0
+        cost = 0L
+        lastBeginTs = 0L
         triggerBegin = 0
     }
 }
@@ -126,15 +126,23 @@ object ViewPerfMonitor {
     private val rootNode = ViewNode()
     private val viewRootImplNode = ViewRootImplNode()
 
-
     fun performTraversal(root: View?) {
         root?.run {
-            rootNode.setView(this, true)
+            forceLayout(this)
             requestLayout()
-            post {
-                getResult()
+        }
+    }
+
+    private fun forceLayout(view: View?) {
+        view?.run {
+            forceLayout()
+            if (this is ViewGroup) {
+                this.children.forEach {
+                    forceLayout(it)
+                }
             }
         }
+
     }
 
     /**
@@ -213,13 +221,13 @@ object ViewPerfMonitor {
         return recursionBuildOutput(rootNode, "*", buildViewRootImplOutput(StringBuilder())).also { result ->
             if (result.isNotEmpty()) {
                 when {
-                    viewRootImplNode.globalData.measureCost > 33 -> {
+                    viewRootImplNode.globalData.cost > 33 -> {
                         Log.e("ViewPerfMonitor", "TraversalResult->$result")
                     }
-                    viewRootImplNode.globalData.measureCost > 16 -> {
+                    viewRootImplNode.globalData.cost > 16 -> {
                         Log.w("ViewPerfMonitor", "TraversalResult->$result")
                     }
-                    viewRootImplNode.globalData.measureCost > 1 -> {
+                    viewRootImplNode.globalData.cost > 1 -> {
                         Log.i("ViewPerfMonitor", "TraversalResult->$result")
                     }
                     else -> {
@@ -232,7 +240,7 @@ object ViewPerfMonitor {
 
     private fun buildViewRootImplOutput(stringBuilder: StringBuilder) : StringBuilder {
         return stringBuilder.append(
-            "[${viewRootImplNode.globalData.measureCost}ms](m:${viewRootImplNode.measureData.measureCost}ms,l:${viewRootImplNode.layoutData.measureCost}ms,d:${viewRootImplNode.drawData.measureCost}ms)${rootNode.view}\n"
+            "[${viewRootImplNode.globalData.cost}ms](m:${viewRootImplNode.measureData.cost}ms,l:${viewRootImplNode.layoutData.cost}ms,d:${viewRootImplNode.drawData.cost}ms)${rootNode.view}\n"
         )
     }
 
@@ -241,11 +249,11 @@ object ViewPerfMonitor {
         prefix: String,
         stringBuilder: StringBuilder
     ): String {
-        if (node.measureData.measureCount == 0 && node.layoutData.measureCount == 0 && node.drawData.measureCount == 0) {
+        if (node.measureData.count == 0 && node.layoutData.count == 0 && node.drawData.count == 0) {
             return ""
         }
         stringBuilder.append(
-            "$prefix [${node.measureData.measureCount}](${node.measureData.measureCost}ms,${node.layoutData.measureCost}ms,${node.drawData.measureCost}ms)${node.view?.javaClass?.simpleName.toString()}(${
+            "$prefix [${node.measureData.count}](${node.measureData.cost}ms,${node.layoutData.cost}ms,${node.drawData.cost}ms)${node.view?.javaClass?.simpleName.toString()}(${
                 getNameFromId(
                     node.view
                 )
