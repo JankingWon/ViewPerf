@@ -5,6 +5,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import java.lang.StringBuilder
+import java.lang.ref.WeakReference
 
 /** Returns a [MutableIterator] over the views in this view group. */
 operator fun ViewGroup.iterator() = object : MutableIterator<View> {
@@ -19,6 +20,29 @@ val ViewGroup.children: Sequence<View>
     get() = object : Sequence<View> {
         override fun iterator() = this@children.iterator()
     }
+
+/**
+ * 把布局数据存入tag
+ */
+var View.stepSet: StepSet
+    get() = (this.getTag(R.id.view_perf_dataset) as? StepSet) ?: StepSet().also {
+        stepSet = it
+    }
+    set(value) {
+        this.setTag(R.id.view_perf_dataset, value)
+    }
+
+/**
+ * 递归清除数据
+ */
+fun View.clearStepSet() {
+    stepSet.clear()
+    if (this is ViewGroup) {
+        children.forEach {
+            it.clearStepSet()
+        }
+    }
+}
 
 class StepData {
     /**
@@ -65,6 +89,11 @@ class StepData {
         lastBeginTs = 0L
         triggerBegin = 0
     }
+
+    override fun toString(): String {
+        return "StepData(count=$count, cost=$cost, lastBeginTs=$lastBeginTs, triggerBegin=$triggerBegin)"
+    }
+
 }
 
 enum class Step {
@@ -73,7 +102,7 @@ enum class Step {
     Draw
 }
 
-open class SimpleNode {
+open class StepSet {
     val measureData = StepData()
     val layoutData = StepData()
     val drawData = StepData()
@@ -83,9 +112,16 @@ open class SimpleNode {
         layoutData.clear()
         drawData.clear()
     }
+
+    override fun toString(): String {
+        return "StepSet(measureData=$measureData, layoutData=$layoutData, drawData=$drawData)"
+    }
 }
 
-class ViewRootImplNode : SimpleNode() {
+class ViewRootImplStepSet : StepSet() {
+    /**
+     * 多了一个全局traversal的时长
+     */
     val globalData = StepData()
 
     override fun clear() {
@@ -94,38 +130,12 @@ class ViewRootImplNode : SimpleNode() {
     }
 }
 
-class ViewNode : SimpleNode() {
-    var view: View? = null
-    var children: List<ViewNode>? = null
-
-    fun setView(v: View, forceLayout: Boolean) {
-        view = v
-        children = if (v is ViewGroup) {
-            // 添加孩子节点
-            v.children.toList().map {
-                // 转换成node
-                ViewNode().apply {
-                    if (forceLayout) {
-                        it.forceLayout()
-                    }
-                    setView(it, forceLayout)
-                }
-            }
-        } else {
-            null
-        }
-    }
-
-    override fun clear() {
-        super.clear()
-        view = null
-        children = null
-    }
-}
-
 object ViewPerfMonitor {
-    private val rootNode = ViewNode()
-    private val viewRootImplNode = ViewRootImplNode()
+    /**
+     * 虽然不会出问题，还是用弱引用规范点
+     */
+    private var rootViewRef: WeakReference<View>? = null
+    private val viewRootImplStepSet = ViewRootImplStepSet()
 
     fun performTraversal(root: View?) {
         root?.run {
@@ -151,44 +161,40 @@ object ViewPerfMonitor {
      */
     @JvmStatic
     fun startTraversal(root: View) {
-        rootNode.setView(root, false)
-        viewRootImplNode.globalData.begin()
+        rootViewRef = WeakReference(root)
+        viewRootImplStepSet.globalData.begin()
     }
 
     @JvmStatic
     fun stopTraversal(): String {
-        viewRootImplNode.globalData.end()
+        viewRootImplStepSet.globalData.end()
         return getResult().also {
-            viewRootImplNode.clear()
-            rootNode.clear()
+            viewRootImplStepSet.clear()
+            rootViewRef?.get()?.clearStepSet()
         }
     }
 
     @JvmStatic
     fun beginViewRootImplStep(step: Step) {
-        beginStep(viewRootImplNode, step)
+        beginStep(viewRootImplStepSet, step)
     }
 
     @JvmStatic
     fun endViewRootImplStep(step: Step) {
-        endStep(viewRootImplNode, step)
+        endStep(viewRootImplStepSet, step)
     }
 
     @JvmStatic
     fun beginViewStep(v: View, step: Step) {
-        recursionFindNode(rootNode, v)?.let {
-            beginStep(it, step)
-        }
+        beginStep(v.stepSet, step)
     }
 
     @JvmStatic
     fun endViewStep(v: View, step: Step) {
-        recursionFindNode(rootNode, v)?.let {
-            endStep(it, step)
-        }
+        endStep(v.stepSet, step)
     }
 
-    private fun beginStep(node: SimpleNode, step: Step) {
+    private fun beginStep(node: StepSet, step: Step) {
         when (step) {
             Step.Measure -> node.measureData.begin()
             Step.Layout -> node.layoutData.begin()
@@ -196,7 +202,7 @@ object ViewPerfMonitor {
         }
     }
 
-    private fun endStep(node: SimpleNode, step: Step) {
+    private fun endStep(node: StepSet, step: Step) {
         when (step) {
             Step.Measure -> node.measureData.end()
             Step.Layout -> node.layoutData.end()
@@ -204,66 +210,61 @@ object ViewPerfMonitor {
         }
     }
 
-
-    private fun recursionFindNode(node: ViewNode, view: View): ViewNode? {
-        if (node.view == view) {
-            return node
-        }
-        node.children?.forEach { it ->
-            recursionFindNode(it, view)?.let {
-                return it
-            }
-        }
-        return null
-    }
-
     @JvmStatic
     private fun getResult(): String {
-        return recursionBuildOutput(rootNode, "*", buildViewRootImplOutput(StringBuilder())).also { result ->
+        return buildViewTreeOutput(
+            rootViewRef?.get(),
+            "*",
+            buildViewRootImplOutput(StringBuilder())
+        ).also { result ->
             if (result.isNotEmpty()) {
+                val context = rootViewRef?.get()?.context
+                val appNameId = context?.applicationInfo?.labelRes ?: 0
+                val appName = if (appNameId == 0) context?.applicationInfo?.nonLocalizedLabel.toString() else context?.getString(appNameId)
                 when {
-                    viewRootImplNode.globalData.cost > 33 -> {
-                        Log.e("ViewPerfMonitor", "TraversalResult->$result")
+                    viewRootImplStepSet.globalData.cost > 33 -> {
+                        Log.e("ViewPerfMonitor", "[$appName]->$result")
                     }
-                    viewRootImplNode.globalData.cost > 16 -> {
-                        Log.w("ViewPerfMonitor", "TraversalResult->$result")
+                    viewRootImplStepSet.globalData.cost > 16 -> {
+                        Log.w("ViewPerfMonitor", "[$appName]->$result")
                     }
-                    viewRootImplNode.globalData.cost > 1 -> {
-                        Log.i("ViewPerfMonitor", "TraversalResult->$result")
+                    viewRootImplStepSet.globalData.cost > 1 -> {
+                        Log.i("ViewPerfMonitor", "[$appName]->$result")
                     }
                     else -> {
-                        Log.d("ViewPerfMonitor", "TraversalResult->$result")
+                        Log.d("ViewPerfMonitor", "[$appName]->$result")
                     }
                 }
             }
         }
     }
 
-    private fun buildViewRootImplOutput(stringBuilder: StringBuilder) : StringBuilder {
+    private fun buildViewRootImplOutput(stringBuilder: StringBuilder): StringBuilder {
         return stringBuilder.append(
-            "[${viewRootImplNode.globalData.cost}ms](m:${viewRootImplNode.measureData.cost}ms,l:${viewRootImplNode.layoutData.cost}ms,d:${viewRootImplNode.drawData.cost}ms)${rootNode.view}\n"
+            "[${viewRootImplStepSet.globalData.cost}ms](m:${viewRootImplStepSet.measureData.cost}ms,l:${viewRootImplStepSet.layoutData.cost}ms,d:${viewRootImplStepSet.drawData.cost}ms)${rootViewRef?.get()}\n"
         )
     }
 
-    private fun recursionBuildOutput(
-        node: ViewNode,
+    private fun buildViewTreeOutput(
+        view: View?,
         prefix: String,
         stringBuilder: StringBuilder
     ): String {
-        if (node.measureData.count == 0 && node.layoutData.count == 0 && node.drawData.count == 0) {
-            return ""
-        }
-        stringBuilder.append(
-            "$prefix [${node.measureData.count}](${node.measureData.cost}ms,${node.layoutData.cost}ms,${node.drawData.cost}ms)${node.view?.javaClass?.simpleName.toString()}(${
-                getNameFromId(
-                    node.view
-                )
-            })\n"
-        )
-        node.children?.forEach {
-            recursionBuildOutput(it, "  $prefix", stringBuilder)
-        }
-        return stringBuilder.toString()
+        return view?.let {
+            val stepSet = it.stepSet
+            if (stepSet.measureData.count == 0 && stepSet.layoutData.count == 0 && stepSet.drawData.count == 0) {
+                return ""
+            }
+            stringBuilder.append(
+                "$prefix [${stepSet.measureData.count}](${stepSet.measureData.cost}ms,${stepSet.layoutData.cost}ms,${stepSet.drawData.cost}ms)${it.javaClass.simpleName.toString()}(${
+                    getNameFromId(it)
+                })\n"
+            )
+            (it as? ViewGroup)?.children?.forEach { child ->
+                buildViewTreeOutput(child, "  $prefix", stringBuilder)
+            }
+            return stringBuilder.toString()
+        } ?: ""
     }
 
     private fun getNameFromId(view: View?): String {
