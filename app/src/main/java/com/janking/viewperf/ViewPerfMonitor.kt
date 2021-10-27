@@ -1,5 +1,6 @@
 package com.janking.viewperf
 
+import android.os.SystemClock
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
@@ -43,7 +44,7 @@ class StepData {
     fun begin() {
         // 如果多次进入begin，以第一次为准
         if (lastBeginTs == 0L) {
-            lastBeginTs = System.currentTimeMillis()
+            lastBeginTs = SystemClock.elapsedRealtime()
         }
         triggerBegin++
     }
@@ -53,7 +54,7 @@ class StepData {
         if (triggerBegin == 0) {
             // 最后进入结束，视为一次有效的过程
             count++
-            cost += System.currentTimeMillis() - lastBeginTs
+            cost += SystemClock.elapsedRealtime() - lastBeginTs
             lastBeginTs = 0
         }
     }
