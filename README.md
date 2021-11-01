@@ -67,7 +67,7 @@
       * [2](0ms,0ms,0ms)View()
       * [2](0ms,0ms,0ms)View(@id/navigationBarBackground)
 ```
-注意点
+**注意**
 - measure次数为0的节点将不会被打印
 - 日志过长会被截断，使用 -continue- 标识
 - 节点的measure耗时是总耗时，即measure多次的耗时会被累加
@@ -76,6 +76,7 @@
 - 因为没有触发手动traversal，所以有时候会有缓存导致measure次数和耗时不一样，如果需要去掉缓存可以手动调用一次ViewPerfMonitor#performTraversal
 
 ## 下载
-可以直接在LSPosed模块仓库搜索ViewPerf
+可以在LSPosed模块仓库搜索ViewPerf
+
 也可直接下载安装
 https://github.com/Xposed-Modules-Repo/com.janking.viewperf/releases
