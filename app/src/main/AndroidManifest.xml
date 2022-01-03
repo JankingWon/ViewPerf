@@ -15,18 +15,10 @@
             android:value="true" />
         <meta-data
             android:name="xposeddescription"
-            android:value="检测View测量、布局和绘制性能" />
+            android:value="检测View测量、布局和绘制性能，日志TAG为ViewPerfMonitor" />
         <meta-data
             android:name="xposedminversion"
             android:value="53" />
-
-        <activity android:name=".MainActivity">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-        </activity>
     </application>
 
 </manifest>
